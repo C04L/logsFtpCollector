@@ -1,4 +1,4 @@
-FROM ghcr.io/graalvm/jdk-community:25 AS builder
+FROM ghcr.io/graalvm/jdk-community:23 AS builder
 
 WORKDIR /build
 COPY build.gradle settings.gradle gradlew ./
@@ -9,7 +9,7 @@ COPY src ./src
 RUN ./gradlew build --no-daemon
 
 # Use the same Java 23 base image for the final runtime
-FROM ghcr.io/graalvm/jdk-community:25
+FROM ghcr.io/graalvm/jdk-community:23
 
 WORKDIR /app
 COPY --from=builder /build/build/libs/*.jar app.jar
