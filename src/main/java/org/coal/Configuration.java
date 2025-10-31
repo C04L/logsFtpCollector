@@ -35,12 +35,13 @@ public class Configuration {
                 .ftpUsername(getEnv("FTP_USERNAME", "anonymous"))
                 .ftpPassword(getEnv("FTP_PASSWORD", ""))
                 .ftpRemoteDir(getEnv("FTP_REMOTE_DIR", "/logs"))
-                .s3KeyId(getEnv("S3_ACCESS_KEY_ID", ""))
-                .s3SecretKey(getEnv("S3_SECRET_ACCESS_KEY", ""))
+                .s3KeyId(getEnv("S3_ACCESS_KEY", ""))
+                .s3SecretKey(getEnv("S3_SECRET_KEY", ""))
                 .s3Bucket(getEnv("S3_BUCKET", "logs-bucket"))
                 .localLogDir(getEnv("LOCAL_LOG_DIR", "./logs"))
                 .elasticConnectionString(getEnv("ELASTIC_CONNECTION_STRING", "http://elasticsearch:9200"))
                 .s3Region(getEnv("S3_REGION", "auto"))
+                .s3Endpoint(getEnv("S3_ENDPOINT", ""))
                 .build();
     }
 
@@ -50,8 +51,8 @@ public class Configuration {
     }
 
     public void validate() {
-        if (s3KeyId.isEmpty() || s3SecretKey.isEmpty()) {
-            throw new IllegalStateException("S3 credentials are required: S3_ACCOUNT_ID, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY");
+        if (s3KeyId.isEmpty() || s3SecretKey.isEmpty() || s3Endpoint.isEmpty()) {
+            throw new IllegalStateException("S3 credentials are required: S3_ACCOUNT_ID, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_ENDPOINT");
         }
         if (ftpHost.isEmpty()) {
             throw new IllegalStateException("FTP_HOST is required");
