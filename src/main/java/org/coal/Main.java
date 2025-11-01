@@ -5,6 +5,7 @@ import java.time.Duration;
 
 public class Main {
     public static void main(String[] args) throws Exception {
+        Configuration.getInstance();
         DatabaseConnection.initDatabase();
         S3Connection.initS3Client();
         ElasticSearch.initElasticConfiguration();

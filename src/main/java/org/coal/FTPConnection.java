@@ -1,68 +1,82 @@
 package org.coal;
 
-import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
+import com.jcraft.jsch.*;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.io.File;
-import java.io.FileOutputStream;
-
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Calendar;
+import java.util.Vector;
 
 public class FTPConnection {
-    private final FTPClient client = new FTPClient();
-    private static final Configuration configuration = Configuration.getInstance();
+    private final Configuration configuration = Configuration.getInstance();
     private final Connection dbConnection = DatabaseConnection.dbConnection;
     private final S3Client s3Client = S3Connection.getS3Client();
 
     public void collectLogs() throws Exception {
-        try {
-            client.connect(configuration.getFtpHost(), configuration.getFtpPort());
-            client.login(configuration.getFtpUsername(), configuration.getFtpPassword());
-            client.enterLocalPassiveMode();
-            client.setFileType(FTPClient.BINARY_FILE_TYPE);
-            String remoteDir = configuration.getFtpRemoteDir();
-            client.changeWorkingDirectory(remoteDir);
+        Session session = null;
+        ChannelSftp channel = null;
 
-            FTPFile[] files = client.listFiles();
+        try {
+            JSch jsch = new JSch();
+            session = jsch.getSession(
+                configuration.getFtpUsername(),
+                configuration.getFtpHost(),
+                configuration.getFtpPort()
+            );
+            session.setPassword(configuration.getFtpPassword());
+
+            // Avoid host key checking in production (use proper key mgmt)
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            session.setConfig(config);
+
+            session.connect();
+            channel = (ChannelSftp) session.openChannel("sftp");
+            channel.connect();
+
+            String remoteDir = configuration.getFtpRemoteDir();
+            channel.cd(remoteDir);
+
+            Vector<ChannelSftp.LsEntry> files = channel.ls("*.log");
             int newFiles = 0;
             int skippedFiles = 0;
 
-            for (FTPFile file : files) {
-                if (file.isFile() && file.getName().endsWith(".log")) {
-                    if (isFileAlreadyDownloaded(file.getName())) {
-                        skippedFiles++;
-                        continue;
-                    }
+            for (ChannelSftp.LsEntry entry : files) {
+                if (entry.getAttrs().isDir()) continue;
 
-                    downloadAndProcess(client, file);
-                    newFiles++;
+                String fileName = entry.getFilename();
+                if (isFileAlreadyDownloaded(fileName)) {
+                    skippedFiles++;
+                    continue;
                 }
+
+                downloadAndProcess(channel, entry, remoteDir);
+                newFiles++;
             }
 
-             System.out.println(String.format("[%s] Scan complete - New: %d, Skipped: %d",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")), newFiles, skippedFiles));
+            System.out.println(String.format("[%s] Scan complete - New: %d, Skipped: %d",
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                newFiles, skippedFiles));
 
         } finally {
-            if (client.isConnected()) {
-                client.logout();
-                client.disconnect();
+            if (channel != null) {
+                channel.exit();
+            }
+            if (session != null) {
+                session.disconnect();
             }
         }
     }
 
     private boolean isFileAlreadyDownloaded(String fileName) throws SQLException {
         String sql = "SELECT EXISTS(SELECT 1 FROM downloaded_files WHERE filename = ?)";
-
         try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
             pstmt.setString(1, fileName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -71,32 +85,26 @@ public class FTPConnection {
         }
     }
 
-    private void downloadAndProcess(FTPClient ftpClient, FTPFile ftpFile) throws Exception {
-        String fileName = ftpFile.getName();
+    private void downloadAndProcess(ChannelSftp channel, ChannelSftp.LsEntry entry, String remoteDir) throws Exception {
+        String fileName = entry.getFilename();
         Path localDir = Paths.get(configuration.getLocalLogDir());
         Files.createDirectories(localDir);
-
         Path localFile = localDir.resolve(fileName);
 
         try (OutputStream outputStream = new FileOutputStream(localFile.toFile())) {
-            boolean success = ftpClient.retrieveFile(fileName, outputStream);
-            if (!success) {
-                System.err.println("Failed to download: " + fileName);
-                return;
-            }
+            channel.get(remoteDir + "/" + fileName, outputStream);
         }
 
-        System.out.println("Downloaded: " + fileName + " (" + ftpFile.getSize() + " bytes)");
+        System.out.println("Downloaded: " + fileName + " (" + entry.getAttrs().getSize() + " bytes)");
 
         boolean s3Success = uploadToS3(localFile.toFile(), fileName, s3Client);
-
-        recordDownloadedFile(fileName, ftpFile.getSize(), ftpFile.getTimestamp(), s3Success);
+        recordDownloadedFile(fileName, entry.getAttrs().getSize(), entry.getAttrs().getMTime(), s3Success);
     }
 
     private static boolean uploadToS3(File file, String fileName, S3Client s3Client) {
         try {
             PutObjectRequest putRequest = PutObjectRequest.builder()
-                    .bucket(configuration.getS3Bucket())
+                    .bucket(Configuration.getInstance().getS3Bucket())
                     .key(fileName)
                     .build();
 
@@ -110,8 +118,7 @@ public class FTPConnection {
         }
     }
 
-    private void recordDownloadedFile(String fileName, long fileSize,
-                                             Calendar ftpModifiedTime, boolean s3Uploaded) throws SQLException {
+    private void recordDownloadedFile(String fileName, long fileSize, int mTimeSeconds, boolean s3Uploaded) throws SQLException {
         String sql = """
             INSERT INTO downloaded_files (filename, file_size, ftp_modified_time, s3_uploaded) 
             VALUES (?, ?, ?, ?)
@@ -120,12 +127,13 @@ public class FTPConnection {
         try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
             pstmt.setString(1, fileName);
             pstmt.setLong(2, fileSize);
-            pstmt.setTimestamp(3, ftpModifiedTime != null ?
-                new Timestamp(ftpModifiedTime.getTimeInMillis()) : null);
+
+            Timestamp ts = mTimeSeconds > 0 ?
+                new Timestamp(mTimeSeconds * 1000L) : null;
+            pstmt.setTimestamp(3, ts);
+
             pstmt.setBoolean(4, s3Uploaded);
             pstmt.executeUpdate();
         }
     }
-
-
 }

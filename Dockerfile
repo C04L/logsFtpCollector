@@ -5,6 +5,8 @@ COPY build.gradle settings.gradle gradlew ./
 COPY gradle ./gradle
 COPY src ./src
 
+RUN chmod +x gradlew
+
 # Build the application using the Java 23 environment
 RUN ./gradlew build --no-daemon
 

@@ -1,5 +1,6 @@
 package org.coal;
 
+import io.github.cdimascio.dotenv.Dotenv;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -39,14 +40,14 @@ public class Configuration {
                 .s3SecretKey(getEnv("S3_SECRET_KEY", ""))
                 .s3Bucket(getEnv("S3_BUCKET", "logs-bucket"))
                 .localLogDir(getEnv("LOCAL_LOG_DIR", "./logs"))
-                .elasticConnectionString(getEnv("ELASTIC_CONNECTION_STRING", "http://elasticsearch:9200"))
+                .elasticConnectionString(getEnv("ELASTICSEARCH_HOST", "http://elasticsearch:9200"))
                 .s3Region(getEnv("S3_REGION", "auto"))
                 .s3Endpoint(getEnv("S3_ENDPOINT", ""))
                 .build();
     }
 
     private static String getEnv(String key, String defaultValue) {
-        String value = System.getenv(key);
+        String value = Dotenv.load().get(key);
         return (value != null && !value.isEmpty()) ? value : defaultValue;
     }
 

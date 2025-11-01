@@ -2,6 +2,7 @@ package org.coal;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -46,6 +47,7 @@ public class S3Connection {
                 .putAdvancedOption(SdkAdvancedClientOption.DISABLE_HOST_PREFIX_INJECTION, true)
                 .build())
             .httpClient(httpClient)
+            .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
             .region(Region.of(configuration.getS3Region()))
             .build();
     }
