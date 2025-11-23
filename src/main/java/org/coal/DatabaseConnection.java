@@ -16,8 +16,9 @@ public class DatabaseConnection {
         String createTableSQL = """
             CREATE TABLE IF NOT EXISTS downloaded_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT UNIQUE NOT NULL,
+                filename TEXT NOT NULL,
                 file_size BIGINT,
+                source_path TEXT UNIQUE NOT NULL,
                 downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 ftp_modified_time TIMESTAMP,
                 s3_uploaded BOOLEAN DEFAULT 0
