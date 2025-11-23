@@ -87,7 +87,7 @@ LOCAL_LOG_DIR=./logs
 
 ```bash
 #Build docker image
-docker build -t logCollector . --no-cache
+docker build -t log-collector . --no-cache
 ```
 #### Chạy bằng docker run
 ```bash
@@ -96,7 +96,7 @@ docker run -d \
   --env-file .env \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/app/logs \
-  logCollector
+  log-collector
 ```
 
 #### Chạy bằng docker-compose
@@ -105,7 +105,7 @@ Với file .env để cùng thư mục với file docker-compose.yml
 services:
   #...Các services khác
   log-collector:
-    image: logCollector
+    image: log-collector
     container_name: log-collector
 #    thay đổi ./logs (vế trái) thành thư mục bạn muốn dùng để lưu logs
     volumes:
