@@ -13,8 +13,8 @@ App Java thu thập log files từ FTP/SFTP server, lưu trữ vào Cloudflare R
 
 ## Yêu cầu hệ thống
 
-- Java 23 (GraalVM JDK Community)
-- Gradle 8.14+
+- Java 23 (GraalVM JDK Community) (nếu chạy local)
+- Gradle 8.14+ (nếu chạy local)
 - Docker & Docker Compose (nếu chạy bằng container)
 - SFTP server với quyền truy cập
 - Cloudflare R2 hoặc S3-compatible storage
@@ -172,6 +172,118 @@ services:
     networks:
       - logs-network
     restart: unless-stopped
+
+```
+### Ví dụ:
+
+```
+dir/
+├── .env
+└── docker-compose.yaml
+```
+
+```properties
+#.env
+FTP_HOST=192.168.1.1
+FTP_PORT=22
+FTP_USERNAME=sftpu
+FTP_PASSWORD=123456
+FTP_REMOTE_DIR=/home/ftpuser/logs/9c65f96bdeee/
+# Cloudflare R2 (S3-compatible) Configuration
+S3_ENDPOINT=https://0bd70c0.r2.cloudflarestorage.com
+S3_ACCESS_KEY=0xxxx000000x0x000000000x0x0c7sad98as7d
+S3_SECRET_KEY=0xxxx000000x0x000000000x0x0cxx98xxx098
+S3_BUCKET=logs
+S3_REGION=auto
+S3_PREFIX=logs/
+LOCAL_LOG_DIR=/home/user/logs/
+# Elasticsearch Configuration
+ELASTICSEARCH_HOST=http://localhost:9200
+```
+
+```yaml
+# docker-compose.yaml
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - action.destructive_requires_name=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - logs-network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - logs-network
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: filebeat
+    user: root
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./logs:/logs:ro
+      - filebeat_data:/usr/share/filebeat/data
+    command: filebeat -e -strict.perms=false
+    depends_on:
+      - elasticsearch
+    networks:
+      - logs-network
+
+  log-collector:
+    image: log-collector
+    container_name: log-collector
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      # FTP Configuration
+      - FTP_HOST=${FTP_HOST}
+      - FTP_PORT=${FTP_PORT:-21}
+      - FTP_USERNAME=${FTP_USERNAME}
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - FTP_REMOTE_DIR=${FTP_REMOTE_DIR:-/}
+      - FTP_DELETE_AFTER_DOWNLOAD=${FTP_DELETE_AFTER_DOWNLOAD:-false}
+      # S3/R2 Configuration
+      - S3_ENDPOINT=${S3_ENDPOINT}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+      - S3_REGION=${S3_REGION:-auto}
+      - S3_PREFIX=${S3_PREFIX:-logs/}
+      # Elasticsearch Configuration
+      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST:-http://elasticsearch:9200}
+      # Polling Configuration
+      - POLLING_INTERVAL_SECONDS=${POLLING_INTERVAL_SECONDS:-300}
+    depends_on:
+      - elasticsearch
+    networks:
+      - logs-network
+    restart: unless-stopped
+
+volumes:
+  es_data:
+  filebeat_data:
+
+networks:
+  logs-network:
+    driver: bridge
 
 ```
 
