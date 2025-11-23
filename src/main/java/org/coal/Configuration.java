@@ -28,6 +28,7 @@ public class Configuration {
     private final String localLogDir;
 
     private static Configuration instance;
+    private static Dotenv dotenv;
 
     public static Configuration fromEnvironment() {
         return Configuration.builder()
@@ -47,13 +48,37 @@ public class Configuration {
     }
 
     private static String getEnv(String key, String defaultValue) {
-        String value = Dotenv.load().get(key);
-        return (value != null && !value.isEmpty()) ? value : defaultValue;
+        // Ưu tiên: System env > .env file > default value
+
+        // 1. Kiểm tra System environment variables trước (Docker -e hoặc system env)
+        String systemEnv = System.getenv(key);
+        if (systemEnv != null && !systemEnv.isEmpty()) {
+            return systemEnv;
+        }
+
+        // 2. Thử load từ .env file (nếu tồn tại)
+        try {
+            if (dotenv == null) {
+                dotenv = Dotenv.configure()
+                        .ignoreIfMissing() // Không throw exception nếu file không tồn tại
+                        .load();
+            }
+            String dotenvValue = dotenv.get(key);
+            if (dotenvValue != null && !dotenvValue.isEmpty()) {
+                return dotenvValue;
+            }
+        } catch (Exception e) {
+            // Bỏ qua lỗi, sẽ dùng default value
+            System.out.println("Warning: Could not load .env file, using system env or defaults");
+        }
+
+        // 3. Trả về default value
+        return defaultValue;
     }
 
     public void validate() {
         if (s3KeyId.isEmpty() || s3SecretKey.isEmpty() || s3Endpoint.isEmpty()) {
-            throw new IllegalStateException("S3 credentials are required: S3_ACCOUNT_ID, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_ENDPOINT");
+            throw new IllegalStateException("S3 credentials are required: S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT");
         }
         if (ftpHost.isEmpty()) {
             throw new IllegalStateException("FTP_HOST is required");
@@ -63,9 +88,8 @@ public class Configuration {
     public static Configuration getInstance() {
         if (instance == null) {
             instance = Configuration.fromEnvironment();
+            instance.validate();
         }
         return instance;
     }
-
-
 }
